@@ -154,9 +154,15 @@ a {
   border-radius: 50%;
   background: var(--svc);
 }
-/* In the service table a clean check is green, not grey. */
-.hp-table-wrap .pt-uptime__dot--ok {
+/* A clean check is green, not grey: in the service table and in the availability card. */
+.pt-uptime__dot--ok {
   background: var(--pt-positive);
+}
+/* The service name and its description wrap instead of widening the table: Punto's cells are
+   nowrap, and a long description pushed the table into a horizontal scroll. */
+.pt-table__td.hp-col-svc {
+  white-space: normal;
+  min-width: 180px;
 }
 .hp-tone--ok {
   color: var(--pt-positive);

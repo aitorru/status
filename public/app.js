@@ -259,6 +259,7 @@ function renderServices() {
     {
       header: "Servicio",
       mono: true,
+      cls: "hp-col-svc",
       cell: (s) =>
         `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
     },
