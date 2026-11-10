@@ -46,17 +46,20 @@ function sample(p, f, col, row) {
       return [clamp01(1 - lin * (0.6 + p.falloff)) ** 1.2, false];
     }
     case "rings": {
-      const w = 0.5 + 0.5 * Math.cos((2 * Math.PI * d) / p.period);
-      return [t > 1 ? 0 : w ** 1.6 * fade, w > 0.55 && Math.round(d / p.period) === hl];
+      const w = 0.5 + 0.5 * Math.cos((2 * Math.PI * (d - p.shift * p.period)) / p.period);
+      return [t > 1 ? 0 : w ** 1.6 * fade, w > 0.55 && Math.round(d / p.period - p.shift) === hl];
     }
     case "orb":
       return [t >= 1 ? 0 : (1 - t * t) ** (0.5 + p.falloff), hl != null && d < hl * p.period];
     case "wave": {
       const across = dx * WAVE_COS + dy * WAVE_SIN;
       const along = dy * WAVE_COS - dx * WAVE_SIN;
-      const phase = (across + p.period * 0.6 * Math.sin(along / (p.period * 1.6))) / p.period;
+      const phase = (across + p.period * 0.6 * Math.sin(along / (p.period * 1.6))) / p.period - p.shift;
       const w = 0.5 + 0.5 * Math.cos(2 * Math.PI * phase);
-      return [w * w * fade, w > 0.6 && Math.abs(Math.round(phase)) === hl];
+      // Moving (shift ≠ 0), every 4th crest carries the accent so the loop has no seam.
+      const band = Math.round(phase);
+      const accented = p.shift ? hl != null && ((band % 4) + 4) % 4 === hl % 4 : Math.abs(band) === hl;
+      return [w * w * fade, w > 0.6 && accented];
     }
     case "diagonal": {
       const i = Math.round(Math.abs(dx) + Math.abs(dy));
@@ -96,6 +99,7 @@ export function dotPattern({
   period,
   falloff,
   highlight = null,
+  shift = 0,
   tone = "ink",
   intensity = 0.3,
   motion = "still",
@@ -110,6 +114,8 @@ export function dotPattern({
     period: period ?? DEFAULTS[motif].period,
     falloff: falloff ?? DEFAULTS[motif].falloff,
     highlight,
+    // Page addition, not in the React component: moves `wave` and `rings` by this many periods.
+    shift,
   };
   const { base, accent } = paths(p, gap);
   const layer = (list, name) =>

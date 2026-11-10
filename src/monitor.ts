@@ -460,6 +460,7 @@ export class Monitor extends EventEmitter {
     const overall = services.reduce<Status>((acc, s) => worst(acc, s.status === "unknown" ? "up" : s.status), "up");
     return {
       title: this.cfg.title,
+      headline: this.cfg.headline ?? null,
       generatedAt: Date.now(),
       lastTickAt: this.lastTickAt,
       intervalSeconds: this.cfg.intervalSeconds,

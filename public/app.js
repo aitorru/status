@@ -149,9 +149,11 @@ function renderHead() {
   const { services, active, overall } = snap;
   const count = (s) => services.filter((x) => x.status === s).length;
   const [up, degraded, down, unknown] = ["up", "degraded", "down", "unknown"].map(count);
+  // `*…*` in the configured headline is the italic half, as in "Todo *funciona*".
+  const headline = snap.headline ? esc(snap.headline).replace(/\*([^*]+)\*/g, "<em>$1</em>") : "Todo <em>funciona</em>";
   const title =
     overall === "up"
-      ? "Todo <em>funciona</em>"
+      ? headline
       : down
         ? down === 1
           ? "Un servicio <em>caído</em>"
@@ -173,12 +175,14 @@ function renderHead() {
     down && Status("error", n(down, "caído", "caídos")),
     unknown && Status("idle", "sin datos"),
   ].filter(Boolean);
-  // The pattern is only redrawn when its motion changes, so the breath is never cut short.
+  // The wave keeps drifting on its own (headWave); on a bad day it also breathes. The svg is
+  // only rebuilt when that changes, so the breath is never cut short.
   const motion = overall === "up" ? "still" : "breathe";
   const head = $("head");
   if (head.dataset.motion !== motion) {
     head.dataset.motion = motion;
-    head.innerHTML = `${dotPattern({ motif: "diagonal", anchor: "top-right", cols: 72, rows: 34, period: 6, highlight: 4, intensity: 0.3, motion })}<div id="head-body" class="hp-head-body"></div>`;
+    head.innerHTML = `<div id="head-wave"></div><div id="head-body" class="hp-head-body"></div>`;
+    drawWave();
   }
   $("head-body").innerHTML = `  ${SectionHeader({
     size: "lg",
@@ -190,6 +194,40 @@ function renderHead() {
   })}
   <div class="pt-stack pt-stack--row pt-stack--wrap fm-head__actions" style="--gap: var(--pt-space-5)">${statuses.join("")}</div>`;
   document.title = `${overall === "up" ? "●" : "▲"} ${snap.title}`;
+}
+
+// ── Header pattern ──────────────────────────────────────────────
+// Punto's wave motif drifting slowly from the top-right corner: one period every ~24 s,
+// redrawn a few times a second (the dots grow and shrink as the crest passes). Still for
+// prefers-reduced-motion and while the tab is hidden.
+const WAVE_PERIOD_S = 24;
+const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)");
+// Not 0: a moving wave accents every 4th crest (dotpattern.js).
+let waveShift = 0.001;
+function drawWave() {
+  const el = $("head-wave");
+  if (!el) return;
+  el.innerHTML = dotPattern({
+    motif: "wave",
+    anchor: "top-right",
+    cols: 72,
+    rows: 34,
+    period: 9,
+    falloff: 1,
+    highlight: 1,
+    intensity: 0.32,
+    shift: waveShift,
+    motion: $("head").dataset.motion,
+  });
+}
+let waveLast = 0;
+function waveFrame(t) {
+  requestAnimationFrame(waveFrame);
+  if (reduceMotion.matches || document.hidden || t - waveLast < 150) return;
+  // Modulo 4 periods: every 4th crest is the accented one, so the wrap is invisible.
+  waveShift = (waveShift + (t - (waveLast || t)) / 1000 / WAVE_PERIOD_S) % 4;
+  waveLast = t;
+  drawWave();
 }
 
 /** One sample per tick for the whole platform: the worst service at that moment. */
@@ -506,6 +544,7 @@ es.onerror = () => {
 applyTheme();
 renderTheme();
 render();
+requestAnimationFrame(waveFrame);
 addEventListener("resize", renderFoot);
 // Relative times tick locally without re-rendering (keeps pulses and breathing smooth).
 setInterval(() => {
