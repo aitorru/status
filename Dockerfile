@@ -1,5 +1,5 @@
 # Node 24 runs the TypeScript sources directly (type stripping): no build stage, no npm install.
-FROM node:24-alpine
+FROM node:26-alpine
 
 WORKDIR /app
 ENV NODE_ENV=production \
