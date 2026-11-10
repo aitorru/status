@@ -258,10 +258,14 @@ function renderServices() {
   const columns = [
     {
       header: "Servicio",
-      mono: true,
       cls: "hp-col-svc",
-      cell: (s) =>
-        `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
+      // The numbered name is the piece of the row: folio in the service's own spectrum colour,
+      // name in the display face. Group and description stay as the tooltip.
+      cell: (s) => {
+        const i = snap.services.indexOf(s);
+        const about = [s.group, s.description].filter(Boolean).join(" · ");
+        return `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(i % 4) + 3})"${about ? ` title="${esc(about)}"` : ""}><span class="pt-folio hp-svc__n">${String(i + 1).padStart(2, "0")}</span><span class="pt-display hp-svc__name">${esc(s.name)}</span></span>`;
+      },
     },
     { header: "Estado", cell: (s) => Status(TONE[s.status], WORD[s.status]) },
     {
