@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CI: "true"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/devenv
+      - name: Lint (biome, tsc, shell, browser JS)
+        run: devenv shell -- lint
+
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/devenv
+      - name: Unit + lifecycle tests
+        run: devenv shell -- unit
+
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ./.github/actions/devenv
+      - name: pnpm audit
+        run: devenv shell -- pnpm audit --audit-level moderate
+
+  docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build image
+        run: docker build -t status:ci .
+      - name: Smoke test
+        run: |
+          cat > /tmp/services.json <<'JSON'
+          { "intervalSeconds": 2, "services": [
+            { "id": "self", "name": "La propia página", "check": { "type": "http", "url": "http://127.0.0.1:8080/healthz" } } ] }
+          JSON
+          docker run -d --name status -p 8080:8080 -v /tmp/services.json:/config/services.json:ro status:ci
+          for i in $(seq 1 30); do curl -sf localhost:8080/healthz && break; sleep 1; done
+          sleep 5
+          curl -sf localhost:8080/api/status | jq -e '.services[0].status == "up"'
+      - name: Logs
+        if: always()
+        run: docker logs status || true

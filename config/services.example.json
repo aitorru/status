@@ -1,0 +1,71 @@
+{
+  "title": "Estado de plataforma",
+  "intervalSeconds": 15,
+  "failThreshold": 2,
+  "recoverThreshold": 3,
+  "historySize": 90,
+  "publicUrl": "${PUBLIC_URL}",
+  "sources": {
+    "prometheus": { "url": "${PROMETHEUS_URL:-http://prometheus:9090}" },
+    "grafana": { "url": "${GRAFANA_URL}", "token": "${GRAFANA_TOKEN}" }
+  },
+  "gitlab": {
+    "labels": ["incident", "status-page"],
+    "assigneeIds": [],
+    "confidential": false,
+    "heartbeatMinutes": 5,
+    "reopenMinutes": 30,
+    "closeOnRecover": true
+  },
+  "services": [
+    {
+      "id": "web",
+      "name": "Web pública",
+      "group": "Edge",
+      "check": {
+        "type": "http",
+        "url": "https://www.example.com/healthz",
+        "expectStatus": 200,
+        "degradedLatencyMs": 800,
+        "timeoutMs": 5000
+      }
+    },
+    {
+      "id": "api",
+      "name": "API",
+      "group": "Core",
+      "check": {
+        "type": "prometheus",
+        "source": "prometheus",
+        "query": "avg(up{job=\"api\"})",
+        "up": ">= 1",
+        "degraded": ">= 0.5"
+      }
+    },
+    {
+      "id": "db",
+      "name": "PostgreSQL",
+      "group": "Datos",
+      "check": {
+        "type": "grafana-query",
+        "source": "grafana",
+        "datasourceUid": "PROM_DS_UID",
+        "expr": "max(pg_replication_lag_seconds)",
+        "up": "< 5",
+        "degraded": "< 30"
+      }
+    },
+    {
+      "id": "queue",
+      "name": "Colas",
+      "group": "Datos",
+      "check": { "type": "grafana-alert", "source": "grafana", "rule": "Queue backlog" }
+    },
+    {
+      "id": "auth",
+      "name": "Auth / SSO",
+      "group": "Core",
+      "check": { "type": "grafana-webhook", "match": { "service": "auth" } }
+    }
+  ]
+}

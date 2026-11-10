@@ -1,0 +1,89 @@
+{
+  "title": "Estado de plataforma",
+  "intervalSeconds": 5,
+  "failThreshold": 2,
+  "recoverThreshold": 2,
+  "historySize": 60,
+  "sources": {
+    "prometheus": { "url": "${MOCK_URL}/prom" },
+    "grafana": { "url": "${MOCK_URL}/grafana", "token": "demo" }
+  },
+  "gitlab": { "labels": ["incident", "status-page"], "heartbeatMinutes": 1, "reopenMinutes": 3 },
+  "services": [
+    {
+      "id": "web",
+      "name": "Web pública",
+      "group": "Edge",
+      "description": "Frontal y CDN",
+      "check": { "type": "http", "url": "${MOCK_URL}/svc/web", "degradedLatencyMs": 800 }
+    },
+    {
+      "id": "checkout",
+      "name": "Checkout API",
+      "group": "Edge",
+      "description": "/api/checkout/health",
+      "check": { "type": "http", "url": "${MOCK_URL}/svc/checkout", "expectStatus": 200 }
+    },
+    {
+      "id": "search",
+      "name": "Búsqueda",
+      "group": "Edge",
+      "description": "Latencia > 800 ms = degradado",
+      "check": { "type": "http", "url": "${MOCK_URL}/svc/search", "degradedLatencyMs": 800 }
+    },
+    {
+      "id": "payments",
+      "name": "Pagos",
+      "group": "Core",
+      "description": "Réplicas vivas (Prometheus)",
+      "check": {
+        "type": "prometheus",
+        "source": "prometheus",
+        "query": "avg(up{job=\"payments\"})",
+        "up": ">= 1",
+        "degraded": ">= 0.5"
+      }
+    },
+    {
+      "id": "errors",
+      "name": "Tasa de errores API",
+      "group": "Core",
+      "description": "5xx / total, 5 min",
+      "check": {
+        "type": "prometheus",
+        "source": "prometheus",
+        "query": "sum(rate(http_requests_total{code=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m])) # error_ratio",
+        "up": "< 0.01",
+        "degraded": "< 0.05"
+      }
+    },
+    {
+      "id": "db",
+      "name": "PostgreSQL",
+      "group": "Datos",
+      "description": "Lag de réplica vía Grafana",
+      "check": {
+        "type": "grafana-query",
+        "source": "grafana",
+        "datasourceUid": "prometheus",
+        "expr": "max(pg_replication_lag_seconds)",
+        "up": "< 5",
+        "degraded": "< 30"
+      }
+    },
+    {
+      "id": "queue",
+      "name": "Colas",
+      "group": "Datos",
+      "description": "Regla de alerta «Queue backlog»",
+      "check": { "type": "grafana-alert", "source": "grafana", "rule": "Queue backlog" }
+    },
+    {
+      "id": "auth",
+      "name": "Auth / SSO",
+      "group": "Core",
+      "description": "Webhook de alertas de Grafana",
+      "check": { "type": "grafana-webhook", "match": { "service": "auth" } }
+    }
+  ]
+}

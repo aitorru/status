@@ -1,0 +1,19 @@
+{
+  "name": "status",
+  "private": true,
+  "type": "module",
+  "description": "Página de estado de servicios para DevOps (diseño Punto) que abre y sigue incidencias en GitLab.",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/server.ts",
+    "demo": "node demo/run.ts",
+    "test": "node --test \"test/*.test.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "typescript": "5.9.3"
+  }
+}

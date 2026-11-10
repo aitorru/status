@@ -1,0 +1,8 @@
+node_modules/
+/data
+/config/services.json
+.env
+.devenv*
+devenv.local.nix
+.pre-commit-config.yaml
+.direnv

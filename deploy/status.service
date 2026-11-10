@@ -1,0 +1,29 @@
+# systemd unit for a VM / bare-metal install. See docs/despliegue.md § systemd.
+#   sudo cp deploy/status.service /etc/systemd/system/ && sudo systemctl enable --now status
+[Unit]
+Description=Status page (servicios + incidencias en GitLab)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=status
+Group=status
+WorkingDirectory=/opt/status
+EnvironmentFile=/etc/status/status.env
+Environment=CONFIG=/etc/status/services.json
+Environment=STATE_FILE=/var/lib/status/state.json
+ExecStart=/usr/bin/node src/server.ts
+Restart=on-failure
+RestartSec=5
+
+# Hardening: the process only needs to read the app and write its state file.
+StateDirectory=status
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/status
+
+[Install]
+WantedBy=multi-user.target

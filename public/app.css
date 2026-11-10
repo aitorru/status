@@ -1,0 +1,187 @@
+/*
+ * Layout for the health page. The `fm-*` rules are the Operations page of Punto 2
+ * (aitorru/desing · src/stories/pages/formal.css); `hp-*` are the few additions this page
+ * needs. Colour, type and components all come from punto.css.
+ */
+
+html,
+body {
+  margin: 0;
+}
+a {
+  color: inherit;
+}
+
+/* ── Punto 2 · formal page (from formal.css) ───────────────── */
+.fm-page {
+  min-height: 100vh;
+  background: var(--pt-bg);
+  color: var(--pt-fg);
+}
+.fm-gutter {
+  padding-inline: max(48px, calc((100% - 1200px) / 2));
+}
+.fm-mast {
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  height: 64px;
+}
+.fm-mast__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 560;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+}
+.fm-mast__fill {
+  flex: 1;
+}
+.fm-mast__issue {
+  color: var(--pt-fg-subtle);
+}
+.fm-head {
+  position: relative;
+  overflow: hidden;
+  padding-block: 72px 56px;
+}
+.hp-head-body,
+.fm-head__actions {
+  position: relative;
+}
+.fm-head__actions {
+  margin-top: 32px;
+}
+.fm-main {
+  display: grid;
+  gap: 64px;
+  padding-block: 48px 0;
+}
+.fm-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 24px;
+}
+.fm-foot {
+  display: grid;
+  gap: 16px;
+  padding-block: 96px 40px;
+}
+.fm-foot__strip {
+  position: relative;
+  height: 40px;
+  overflow: hidden;
+}
+.fm-foot__line {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px 24px;
+  font-size: var(--pt-text-xs);
+  color: var(--pt-fg-subtle);
+}
+.fm-cols--even {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 860px) {
+  .fm-mast__issue {
+    display: none;
+  }
+  .fm-cols--even {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 720px) {
+  .fm-gutter {
+    padding-inline: 24px;
+  }
+}
+
+/* ── Health page additions ─────────────────────────────────── */
+.hp-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 16px;
+  font-size: var(--pt-text-xs);
+  color: var(--pt-fg-subtle);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 520px) {
+  .hp-live__time {
+    display: none;
+  }
+}
+
+/* The pattern sits behind the header and never under the text column. */
+.fm-head .pt-dotpattern {
+  max-width: 70%;
+}
+
+/* Service table: the history strip and the last message are allowed to shrink. */
+.hp-table-wrap {
+  overflow-x: auto;
+}
+.hp-table-wrap .pt-uptime {
+  gap: 3px;
+}
+.hp-msg {
+  color: var(--pt-fg-subtle);
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.hp-svc {
+  display: grid;
+  gap: 2px;
+}
+.hp-svc small {
+  font-family: var(--pt-font-sans);
+  font-size: var(--pt-text-xs);
+  color: var(--pt-fg-subtle);
+}
+@media (max-width: 860px) {
+  .hp-col-src,
+  .hp-col-msg {
+    display: none;
+  }
+}
+@media (max-width: 600px) {
+  .hp-col-hist {
+    display: none;
+  }
+}
+
+/* Incident card: header line, key/values, and its own log. */
+.hp-inc {
+  display: grid;
+  gap: var(--pt-space-5);
+}
+.hp-inc__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: start;
+  gap: var(--pt-space-4);
+}
+.hp-inc__title {
+  font-size: var(--pt-display-sm);
+  margin: 0;
+}
+.hp-inc .pt-log {
+  max-height: 220px;
+}
+.hp-empty {
+  display: flex;
+  align-items: center;
+  gap: var(--pt-space-3);
+  color: var(--pt-fg-muted);
+}
+
+.hp-head__title em {
+  font-style: italic;
+}

@@ -1,0 +1,92 @@
+# Minimal Kubernetes install. See docs/despliegue.md § Kubernetes.
+#   kubectl create namespace status
+#   kubectl -n status create secret generic status-env --from-env-file=.env
+#   kubectl -n status create configmap status-config --from-file=services.json=config/services.json
+#   kubectl -n status apply -f deploy/kubernetes/status.yaml
+#
+# One replica only: incidents and issue tracking live in this process (see docs/arquitectura.md).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: status
+  labels: { app: status }
+spec:
+  replicas: 1
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: status }
+  template:
+    metadata:
+      labels: { app: status }
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: status
+          image: ghcr.io/aitorru/status:latest # build and push it yourself (docs/despliegue.md)
+          ports:
+            - { name: http, containerPort: 8080 }
+          envFrom:
+            - secretRef: { name: status-env }
+          env:
+            - { name: PORT, value: "8080" }
+            - { name: CONFIG, value: /config/services.json }
+            - { name: STATE_FILE, value: /data/state.json }
+          volumeMounts:
+            - { name: config, mountPath: /config, readOnly: true }
+            - { name: data, mountPath: /data }
+          readinessProbe:
+            httpGet: { path: /healthz, port: http }
+          livenessProbe:
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 20m, memory: 64Mi }
+            limits: { memory: 256Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+      volumes:
+        - name: config
+          configMap: { name: status-config }
+        - name: data
+          persistentVolumeClaim: { claimName: status-data }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: status-data
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests: { storage: 100Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: status
+spec:
+  selector: { app: status }
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# Ingress: SSE needs buffering off (ingress-nginx annotations below).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: status
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+spec:
+  rules:
+    - host: status.example.internal
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: status, port: { name: http } }
