@@ -251,13 +251,16 @@ function renderStats() {
   ].join("");
 }
 
+/** Uptime colour: green when clean, amber below 99 %, red below 95 %. */
+const uptimeTone = (u) => (u == null ? "idle" : u >= 0.99 ? "ok" : u >= 0.95 ? "warn" : "error");
+
 function renderServices() {
   const columns = [
     {
       header: "Servicio",
       mono: true,
       cell: (s) =>
-        `<span class="hp-svc">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
+        `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
     },
     { header: "Estado", cell: (s) => Status(TONE[s.status], WORD[s.status]) },
     {
@@ -277,8 +280,19 @@ function renderServices() {
           6,
         ),
     },
-    { header: "Uptime", end: true, mono: true, cell: (s) => pct(s.uptime) },
-    { header: "Latencia", end: true, mono: true, cell: (s) => (s.latencyMs == null ? "—" : `${s.latencyMs} ms`) },
+    {
+      header: "Uptime",
+      end: true,
+      mono: true,
+      cell: (s) => `<span class="hp-tone hp-tone--${uptimeTone(s.uptime)}">${pct(s.uptime)}</span>`,
+    },
+    {
+      header: "Latencia",
+      end: true,
+      mono: true,
+      cell: (s) =>
+        s.latencyMs == null ? "—" : `<span class="hp-tone hp-tone--${TONE[s.status]}">${s.latencyMs} ms</span>`,
+    },
     {
       header: "Última comprobación",
       cls: "hp-col-msg",
@@ -360,6 +374,80 @@ function renderLog() {
     }`;
 }
 
+// ── Favicon ─────────────────────────────────────────────────────
+// The brand's nine dots in the colour of the platform; when something is down they turn red
+// and only the diagonals stay, so the tab says it without colour too. Grey while reconnecting.
+const FAVICON = { up: "#2f9e6e", degraded: "#d08a1c", down: "#f23f6b", unknown: "#8a8a8a" };
+function renderFavicon() {
+  const state = connected && snap ? snap.overall : "unknown";
+  const el = $("favicon");
+  if (!el || el.dataset.state === state) return;
+  el.dataset.state = state;
+  const dots = [];
+  for (const y of [4, 12, 20])
+    for (const x of [4, 12, 20])
+      if (state !== "down" || x === y || x + y === 24)
+        dots.push(`<circle cx="${x}" cy="${y}" r="${state === "down" ? 3.2 : 2.6}"/>`);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><g fill="${FAVICON[state] ?? FAVICON.unknown}">${dots.join("")}</g></svg>`;
+  el.href = `data:image/svg+xml,${encodeURIComponent(svg)}`;
+}
+
+// ── Theme switch ────────────────────────────────────────────────
+// Punto's ThemeSwitch (icons, sm) and useTheme: the choice is kept in localStorage under
+// pt-theme, `system` follows the device with OLED at night. A ?theme= in the URL wins on load.
+const THEME_KEY = "pt-theme";
+const THEMES = ["system", "light", "dark", "oled"];
+const THEME_LABEL = { system: "Sistema", light: "Claro", dark: "Oscuro", oled: "OLED" };
+const darkMq = matchMedia("(prefers-color-scheme: dark)");
+let themePref = (() => {
+  const pinned = new URLSearchParams(location.search).get("theme");
+  if (THEMES.includes(pinned)) return pinned;
+  try {
+    const stored = localStorage.getItem(THEME_KEY);
+    return THEMES.includes(stored) ? stored : "system";
+  } catch {
+    return "system";
+  }
+})();
+const applyTheme = () =>
+  document.documentElement.setAttribute(
+    "data-pt-theme",
+    themePref === "system" ? (darkMq.matches ? "oled" : "light") : themePref,
+  );
+function renderTheme() {
+  $("theme").innerHTML =
+    `<fieldset class="pt-themeswitch pt-themeswitch--sm pt-themeswitch--icons" style="--n:${THEMES.length};--i:${THEMES.indexOf(themePref)}">
+    <legend class="pt-sr-only">Tema</legend>
+    <span class="pt-themeswitch__thumb" aria-hidden="true"></span>
+    ${THEMES.map(
+      (t) => `<label class="pt-themeswitch__item${t === themePref ? " is-active" : ""}" title="${THEME_LABEL[t]}">
+      <input type="radio" class="pt-themeswitch__input" name="pt-theme" value="${t}"${t === themePref ? " checked" : ""} />
+      <span class="pt-themeswitch__glyph pt-themeswitch__glyph--${t}" aria-hidden="true"></span>
+      <span class="pt-sr-only">${THEME_LABEL[t]}</span>
+    </label>`,
+    ).join("")}
+  </fieldset>`;
+}
+$("theme").addEventListener("change", (e) => {
+  themePref = e.target.value;
+  try {
+    localStorage.setItem(THEME_KEY, themePref);
+  } catch {
+    // Private mode or storage disabled: the choice lasts for this page only.
+  }
+  applyTheme();
+  renderTheme();
+  $("theme").querySelector(`input[value="${themePref}"]`)?.focus();
+});
+darkMq.addEventListener("change", applyTheme);
+// Another tab changed it: follow.
+addEventListener("storage", (e) => {
+  if (e.key !== THEME_KEY) return;
+  themePref = THEMES.includes(e.newValue) ? e.newValue : "system";
+  applyTheme();
+  renderTheme();
+});
+
 let puntoVersion = "";
 function renderFoot() {
   const strip = $("strip");
@@ -385,6 +473,7 @@ function renderFoot() {
 function render() {
   renderMast();
   renderLive();
+  renderFavicon();
   renderFoot();
   if (!snap) return;
   renderHead();
@@ -412,8 +501,11 @@ es.onmessage = (ev) => {
 es.onerror = () => {
   connected = false;
   renderLive();
+  renderFavicon();
 };
 
+applyTheme();
+renderTheme();
 render();
 addEventListener("resize", renderFoot);
 // Relative times tick locally without re-rendering (keeps pulses and breathing smooth).
