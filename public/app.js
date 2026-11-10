@@ -68,6 +68,10 @@ const SectionHeader = ({
   ${actions ? `<div class="pt-sectionheader__actions">${actions}</div>` : ""}
 </header>`;
 
+/** A page section's title: its number and its name are the heading, with no subtitle. */
+const SectionTitle = (index, title, actions) =>
+  SectionHeader({ title: `<span class="hp-sec__n">${index}</span>${title}`, actions });
+
 const KeyValue = (items) =>
   `<dl class="pt-kv pt-kv--leaders">${items
     .map(
@@ -258,14 +262,10 @@ function renderServices() {
   const columns = [
     {
       header: "Servicio",
+      mono: true,
       cls: "hp-col-svc",
-      // The numbered name is the piece of the row: folio in the service's own spectrum colour,
-      // name in the display face. Group and description stay as the tooltip.
-      cell: (s) => {
-        const i = snap.services.indexOf(s);
-        const about = [s.group, s.description].filter(Boolean).join(" · ");
-        return `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(i % 4) + 3})"${about ? ` title="${esc(about)}"` : ""}><span class="pt-folio hp-svc__n">${String(i + 1).padStart(2, "0")}</span><span class="pt-display hp-svc__name">${esc(s.name)}</span></span>`;
-      },
+      cell: (s) =>
+        `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
     },
     { header: "Estado", cell: (s) => Status(TONE[s.status], WORD[s.status]) },
     {
@@ -304,7 +304,7 @@ function renderServices() {
       cell: (s) => `<div class="hp-msg" title="${esc(s.message)}">${esc(s.message)}</div>`,
     },
   ];
-  $("services").innerHTML = `${SectionHeader({ index: "01", eyebrow: "Servicios", title: "Lo que vigilamos" })}
+  $("services").innerHTML = `${SectionTitle("01", "Servicios")}
     <div class="hp-table-wrap">${DataTable({ caption: "Servicios vigilados", columns, rows: snap.services, selected: (s) => Boolean(s.incident) })}</div>`;
 }
 
@@ -346,12 +346,7 @@ function renderIncidents() {
         rows: resolved,
       })
     : "";
-  $("incidents").innerHTML = `${SectionHeader({
-    index: "02",
-    eyebrow: "Incidencias",
-    title: active.length ? "Abiertas ahora" : "Nada abierto",
-    actions: `<span class="pt-folio">${where}</span>`,
-  })}
+  $("incidents").innerHTML = `${SectionTitle("02", "Incidencias", `<span class="pt-folio">${where}</span>`)}
   ${cards.join("") || Glass(`<div class="hp-empty">${Status("ok", "Sin incidencias abiertas")}</div>`)}
   ${past ? `<span class="pt-eyebrow">Resueltas recientemente</span><div class="hp-table-wrap">${past}</div>` : ""}`;
 }
@@ -362,8 +357,7 @@ function renderLog() {
     .sort((a, b) => b.t - a.t)
     .slice(0, 14);
   const width = Math.max(...snap.services.map((s) => s.id.length));
-  $("log").innerHTML =
-    `${SectionHeader({ index: "03", eyebrow: "Registro", title: "Últimos eventos", actions: Status("running", "En directo") })}
+  $("log").innerHTML = `${SectionTitle("03", "Registro", Status("running", "En directo"))}
     ${
       all.length
         ? LogView(
