@@ -25,6 +25,7 @@ plantilla `services.example.json` a través de `${…}`. Puedes llamarlas como q
 ```jsonc
 {
   "title": "Estado de plataforma",   // cabecera de la página
+  "headline": "DevTools *status*",   // titular con todo en verde (*…* en cursiva); por defecto «Todo *funciona*»
   "intervalSeconds": 15,             // cada cuánto se comprueba todo
   "failThreshold": 2,                // fallos seguidos para abrir incidencia
   "recoverThreshold": 2,             // aciertos seguidos para cerrarla

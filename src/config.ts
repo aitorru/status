@@ -4,6 +4,11 @@ import type { Service, Source } from "./types.ts";
 
 export interface Config {
   title: string;
+  /**
+   * Main headline while everything is up, e.g. "DevTools *status*" (`*…*` is set in italics).
+   * Unset: "Todo *funciona*". With something down or degraded the headline says so instead.
+   */
+  headline?: string;
   intervalSeconds: number;
   /** Consecutive failed checks before an incident opens (debounce). */
   failThreshold: number;
@@ -48,6 +53,7 @@ export function loadConfig(path = process.env.CONFIG ?? "config/services.json"):
   const gl = (raw.gitlab ?? {}) as Partial<Config["gitlab"]>;
   const cfg: Config = {
     title: raw.title ?? "Estado de servicios",
+    headline: raw.headline || undefined,
     intervalSeconds: Number(raw.intervalSeconds ?? 15),
     failThreshold: Number(raw.failThreshold ?? 2),
     recoverThreshold: Number(raw.recoverThreshold ?? 2),
