@@ -138,31 +138,30 @@ a {
 }
 .hp-svc {
   --svc: var(--pt-accent);
-  display: grid;
-  gap: 2px;
-  padding-left: 14px;
-  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
 }
-/* Each service keeps its own spectrum colour, as a dot before the name. */
-.hp-svc::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.45em;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--svc);
+/* Each service keeps its own spectrum colour, on its number. */
+.hp-svc__n {
+  color: var(--svc);
+  font-size: var(--pt-text-sm);
+}
+.hp-svc__name {
+  font-size: var(--pt-display-sm);
+  line-height: 1.1;
+  margin: 0;
 }
 /* A clean check is green, not grey: in the service table and in the availability card. */
 .pt-uptime__dot--ok {
   background: var(--pt-positive);
 }
-/* The service name and its description wrap instead of widening the table: Punto's cells are
-   nowrap, and a long description pushed the table into a horizontal scroll. */
+/* A long name wraps instead of widening the table (Punto's cells are nowrap), and the rows
+   grow to fit the display-size name. */
 .pt-table__td.hp-col-svc {
   white-space: normal;
   min-width: 180px;
+  padding-block: 12px;
 }
 .hp-tone--ok {
   color: var(--pt-positive);
@@ -172,11 +171,6 @@ a {
 }
 .hp-tone--error {
   color: var(--pt-negative);
-}
-.hp-svc small {
-  font-family: var(--pt-font-sans);
-  font-size: var(--pt-text-xs);
-  color: var(--pt-fg-subtle);
 }
 @media (max-width: 860px) {
   .hp-col-src,
