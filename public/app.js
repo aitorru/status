@@ -162,7 +162,7 @@ function renderHead() {
             `${esc(i.serviceName)} ${WORD[i.status].toLowerCase()} desde hace ${ago(i.startedAt)}${i.issue ? ` (issue #${i.issue.iid})` : ""}`,
         )
         .join("; ")}.`
-    : `Las ${services.length} comprobaciones están en verde. Si algo cae, se abre una issue en GitLab y se sigue allí.`;
+    : "";
   const statuses = [
     up && Status("ok", n(up, "operativo", "operativos")),
     degraded && Status("warn", n(degraded, "degradado", "degradados")),
