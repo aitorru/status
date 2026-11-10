@@ -137,8 +137,35 @@ a {
   white-space: nowrap;
 }
 .hp-svc {
+  --svc: var(--pt-accent);
   display: grid;
   gap: 2px;
+  padding-left: 14px;
+  position: relative;
+}
+/* Each service keeps its own spectrum colour, as a dot before the name. */
+.hp-svc::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.45em;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--svc);
+}
+/* In the service table a clean check is green, not grey. */
+.hp-table-wrap .pt-uptime__dot--ok {
+  background: var(--pt-positive);
+}
+.hp-tone--ok {
+  color: var(--pt-positive);
+}
+.hp-tone--warn {
+  color: var(--pt-warning);
+}
+.hp-tone--error {
+  color: var(--pt-negative);
 }
 .hp-svc small {
   font-family: var(--pt-font-sans);

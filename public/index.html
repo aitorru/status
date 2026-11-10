@@ -4,6 +4,7 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Estado de servicios</title>
+    <link rel="icon" id="favicon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -13,16 +14,24 @@
     <link rel="stylesheet" href="/punto.css" />
     <link rel="stylesheet" href="/app.css" />
     <script>
-      // Punto's themeInitScript (night = OLED, as in the Operations page), minus storage:
-      // a display page has no switch. ?theme=light|dark|oled and ?palette=punto|marea|siena|citrico
-      // pin them for wallboards; ?version=1 shows the poster edition.
+      // Punto's themeInitScript (key pt-theme, night = OLED, as in the Operations page): the
+      // stored choice of the theme switch, or the device. ?theme=light|dark|oled and
+      // ?palette=punto|marea|siena|citrico pin them for wallboards; ?version=1 shows the poster
+      // edition. app.js keeps it in sync afterwards.
       (() => {
         const q = new URLSearchParams(location.search);
         const root = document.documentElement;
-        const mq = matchMedia("(prefers-color-scheme: dark)");
-        const apply = () => root.setAttribute("data-pt-theme", q.get("theme") ?? (mq.matches ? "oled" : "light"));
-        apply();
-        mq.addEventListener("change", apply);
+        let p = null;
+        try {
+          p = localStorage.getItem("pt-theme");
+        } catch {}
+        const pinned = q.get("theme");
+        const t = ["light", "dark", "oled"].includes(pinned ?? p)
+          ? (pinned ?? p)
+          : matchMedia("(prefers-color-scheme: dark)").matches
+            ? "oled"
+            : "light";
+        root.setAttribute("data-pt-theme", t);
         if (q.get("palette")) root.setAttribute("data-pt-palette", q.get("palette"));
         if (q.get("version") === "1") root.removeAttribute("data-pt-version");
       })();
@@ -42,6 +51,7 @@
         <span class="fm-mast__fill"></span>
         <span class="pt-folio fm-mast__issue" id="issue"></span>
         <span id="live" aria-live="polite"></span>
+        <span id="theme"></span>
       </header>
       <hr class="pt-rule" />
 
