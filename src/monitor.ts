@@ -90,6 +90,7 @@ export class Monitor extends EventEmitter {
     );
     for (const [svc, r] of results) this.apply(svc, r);
     this.lastTickAt = Date.now();
+    this.expireResolved(this.lastTickAt);
     this.save();
     this.emit("update");
   }
@@ -418,9 +419,18 @@ export class Monitor extends EventEmitter {
         st.incident = saved.incident;
       }
       this.resolved = data.incidents ?? [];
+      this.expireResolved();
     } catch {
       /* first run */
     }
+  }
+
+  /** Drops resolved incidents older than `resolvedRetentionDays`, so the page forgets them. */
+  private expireResolved(now = Date.now()) {
+    const days = this.cfg.resolvedRetentionDays;
+    if (!(days > 0)) return;
+    const cutoff = now - days * 86_400_000;
+    this.resolved = this.resolved.filter((i) => (i.resolvedAt ?? i.startedAt) >= cutoff);
   }
 
   private save() {

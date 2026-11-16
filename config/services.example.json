@@ -4,6 +4,7 @@
   "failThreshold": 2,
   "recoverThreshold": 3,
   "historySize": 90,
+  "resolvedRetentionDays": 7,
   "publicUrl": "${PUBLIC_URL}",
   "sources": {
     "prometheus": { "url": "${PROMETHEUS_URL:-http://prometheus:9090}" },
