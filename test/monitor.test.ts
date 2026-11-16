@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { once } from "node:events";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
@@ -61,13 +61,14 @@ describe("incident lifecycle", () => {
   });
   after(() => server.close());
 
-  function setup() {
+  function setup(state?: unknown) {
     const cfg: Config = {
       title: "t",
       intervalSeconds: 60,
       failThreshold: 2,
       recoverThreshold: 2,
       historySize: 10,
+      resolvedRetentionDays: 7,
       sources: {},
       gitlab: {
         labels: ["incident", "status-page"],
@@ -81,6 +82,7 @@ describe("incident lifecycle", () => {
     };
     const { gl, calls, descriptions } = fakeGitLab();
     const file = join(mkdtempSync(join(tmpdir(), "status-")), "state.json");
+    if (state) writeFileSync(file, JSON.stringify(state));
     const monitor = new Monitor(cfg, gl, file);
     // Let the per-service GitLab queue drain after a tick.
     const settle = () => new Promise((r) => setTimeout(r, 20));
@@ -131,5 +133,42 @@ describe("incident lifecycle", () => {
     assert.ok(reopen, "a failure inside reopenMinutes reopens the same issue");
     assert.equal(calls.filter((c) => c.op === "create").length, 1, "no second issue");
     monitor.stop();
+  });
+
+  it("forgets resolved incidents older than resolvedRetentionDays", async () => {
+    const day = 86_400_000;
+    const now = Date.now();
+    const incident = (id: string, resolvedAt: number) => ({
+      id,
+      serviceId: "api",
+      serviceName: "API",
+      startedAt: resolvedAt - 120_000,
+      resolvedAt,
+      status: "degraded",
+      worst: "degraded",
+      failedChecks: 2,
+      lastMessage: "lento",
+      timeline: [],
+    });
+    const { monitor, step } = setup({
+      services: {},
+      incidents: [incident("new", now - day), incident("edge", now - 7 * day + 60_000), incident("old", now - 8 * day)],
+    });
+    assert.deepEqual(
+      monitor.snapshot().resolved.map((i) => i.id),
+      ["new", "edge"],
+      "load drops the expired ones",
+    );
+
+    // As if the clock had moved past its seven days.
+    const loaded = monitor.resolved.find((i) => i.id === "edge");
+    assert.ok(loaded);
+    loaded.resolvedAt = now - 7 * day - 1_000;
+    await step(200);
+    assert.deepEqual(
+      monitor.snapshot().resolved.map((i) => i.id),
+      ["new"],
+      "each tick drops the ones that expired meanwhile",
+    );
   });
 });

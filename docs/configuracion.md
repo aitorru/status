@@ -30,6 +30,7 @@ plantilla `services.example.json` a través de `${…}`. Puedes llamarlas como q
   "failThreshold": 2,                // fallos seguidos para abrir incidencia
   "recoverThreshold": 2,             // aciertos seguidos para cerrarla
   "historySize": 90,                 // muestras guardadas por servicio (la tira de puntos)
+  "resolvedRetentionDays": 7,        // días que una incidencia resuelta sigue en la página; 0 = sin caducar
   "publicUrl": "${PUBLIC_URL}",      // o PUBLIC_URL en el entorno
   "hookToken": "${HOOK_TOKEN}",      // o HOOK_TOKEN en el entorno
   "sources": { /* ver abajo */ },

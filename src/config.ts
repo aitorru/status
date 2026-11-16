@@ -15,6 +15,8 @@ export interface Config {
   /** Consecutive good checks before an incident resolves. */
   recoverThreshold: number;
   historySize: number;
+  /** Days a resolved incident stays on the page. 0 keeps them (only the last 20). */
+  resolvedRetentionDays: number;
   publicUrl?: string;
   hookToken?: string;
   sources: Record<string, Source>;
@@ -58,6 +60,7 @@ export function loadConfig(path = process.env.CONFIG ?? "config/services.json"):
     failThreshold: Number(raw.failThreshold ?? 2),
     recoverThreshold: Number(raw.recoverThreshold ?? 2),
     historySize: Number(raw.historySize ?? 90),
+    resolvedRetentionDays: Number(raw.resolvedRetentionDays ?? 7),
     publicUrl: raw.publicUrl || process.env.PUBLIC_URL || undefined,
     hookToken: raw.hookToken || process.env.HOOK_TOKEN || undefined,
     sources: raw.sources ?? {},
