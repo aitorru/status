@@ -19,6 +19,8 @@ spec:
     metadata:
       labels: { app: status }
     spec:
+      # Only needed by `kubernetes` checks (k3s API, nodes, Traefik, KubeBlocks primaries).
+      serviceAccountName: status
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -90,3 +92,36 @@ spec:
             pathType: Prefix
             backend:
               service: { name: status, port: { name: http } }
+---
+# Read-only access for `kubernetes` checks. Drop it (and serviceAccountName) if you use none.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: status
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: status-checks
+rules:
+  - apiGroups: [""]
+    resources: [nodes, pods]
+    verbs: [get, list]
+  - apiGroups: [apps]
+    resources: [deployments]
+    verbs: [get]
+  - nonResourceURLs: [/readyz, /version]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: status-checks
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: status-checks
+subjects:
+  - kind: ServiceAccount
+    name: status
+    namespace: status

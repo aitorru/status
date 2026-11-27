@@ -51,6 +51,72 @@ export function startMock(port: number) {
       return send(200, "ok", "text/plain");
     }
 
+    // ── Platform behind a maintenance page ────────────────────
+    // From 20 s to 50 s of each cycle the migration platform puts its maintenance page in
+    // front of GitLab, SonarQube and Keycloak. The page covers every path of GitLab, but only
+    // the root of SonarQube and Keycloak: their health paths go below it and just fail.
+    const inMaint = between(20, 50);
+    const maintPage = (service: string) => {
+      res.writeHead(503, {
+        "content-type": "text/html; charset=utf-8",
+        "x-maintenance": "1",
+        "x-maintenance-start": new Date(Date.now() - (phase() - 20) * 1000).toISOString(),
+        "x-maintenance-end": new Date(Date.now() + (50 - phase()) * 1000).toISOString(),
+        "x-maintenance-service": service,
+        "retry-after": String(Math.ceil(50 - phase())),
+      });
+      res.end("<h1>En mantenimiento</h1>");
+    };
+    if (url.pathname.startsWith("/svc/gitlab")) {
+      if (inMaint) return maintPage("GitLab");
+      await sleep(40 + Math.random() * 60);
+      return send(200, "GitLab OK", "text/plain");
+    }
+    for (const [prefix, name, health, body] of [
+      ["/svc/sonarqube", "SonarQube", "/svc/sonarqube/api/system/status", '{"status":"UP"}'],
+      ["/svc/keycloak", "Keycloak", "/svc/keycloak/realms/platform/.well-known/openid-configuration", '{"issuer":"…"}'],
+    ] as const) {
+      if (url.pathname === `${prefix}/`) return inMaint ? maintPage(name) : send(200, `${name}`, "text/html");
+      if (url.pathname === health) {
+        await sleep(30 + Math.random() * 50);
+        return inMaint ? send(502, "bad gateway", "text/plain") : send(200, body);
+      }
+    }
+
+    // ── k3s API ───────────────────────────────────────────────
+    const ready = (ok: boolean) => ({ conditions: [{ type: "Ready", status: ok ? "True" : "False" }] });
+    if (url.pathname === "/k8s/readyz") return send(200, "readyz check passed", "text/plain");
+    if (url.pathname === "/k8s/version") return send(200, { gitVersion: "v1.33.5+k3s1" });
+    if (url.pathname === "/k8s/api/v1/nodes") {
+      const nodes = ["pi-a", "pi-b", "pi-c"].map((name, i) => ({
+        metadata: { name },
+        status: ready(!(i === 2 && between(60, 80))),
+      }));
+      return send(200, { items: nodes });
+    }
+    if (url.pathname === "/k8s/apis/apps/v1/namespaces/kube-system/deployments/traefik") {
+      return send(200, { metadata: { name: "traefik" }, spec: { replicas: 1 }, status: { readyReplicas: 1 } });
+    }
+    if (url.pathname === "/k8s/api/v1/pods") {
+      const pod = (cluster: string, i: number, role: string) => ({
+        metadata: {
+          name: `${cluster}-postgresql-${i}`,
+          labels: { "app.kubernetes.io/instance": cluster, "kubeblocks.io/role": role },
+        },
+        status: ready(true),
+      });
+      // A switchover between 85 s and 95 s: pg-gitlab has no primary for a moment.
+      const switching = between(85, 95);
+      return send(200, {
+        items: [
+          pod("pg-gitlab", 0, switching ? "secondary" : "primary"),
+          pod("pg-gitlab", 1, "secondary"),
+          pod("pg-sonarqube", 0, "primary"),
+          pod("pg-keycloak", 0, "primary"),
+        ],
+      });
+    }
+
     // ── Prometheus ────────────────────────────────────────────
     if (url.pathname === "/prom/api/v1/query") {
       const q = url.searchParams.get("query") ?? "";

@@ -1,18 +1,30 @@
 import { EventEmitter } from "node:events";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import { describeCheck, runCheck } from "./checks.ts";
+import { describeCheck, maintenanceMessage, probeMaintenance, runCheck } from "./checks.ts";
 import type { Config } from "./config.ts";
 import type { GitLab } from "./gitlab.ts";
-import { type CheckResult, type Incident, RANK, type Sample, type Service, type Status, worst } from "./types.ts";
+import {
+  type CheckResult,
+  downtime,
+  type Incident,
+  type Maintenance,
+  RANK,
+  type Sample,
+  type Service,
+  type Status,
+  worst,
+} from "./types.ts";
 
 const LABEL: Record<Status, string> = {
   up: "operativo",
   degraded: "degradado",
   down: "caído",
   unknown: "sin datos",
+  maintenance: "en mantenimiento",
 };
-const EMOJI: Record<Status, string> = { up: "🟢", degraded: "🟠", down: "🔴", unknown: "⚪" };
+const EMOJI: Record<Status, string> = { up: "🟢", degraded: "🟠", down: "🔴", unknown: "⚪", maintenance: "🔵" };
+const SAMPLE: Record<Status, string> = { up: "u", degraded: "d", down: "x", unknown: "-", maintenance: "m" };
 const MARK_START = "<!-- status-page -->";
 const MARK_END = "<!-- /status-page -->";
 
@@ -38,10 +50,12 @@ interface ServiceState {
   oks: number;
   pushed?: CheckResult;
   incident?: Incident;
+  /** Set while the last result was a maintenance. */
+  maintenance?: Maintenance;
 }
 
 interface Persisted {
-  services: Record<string, Pick<ServiceState, "history" | "status" | "incident">>;
+  services: Record<string, Pick<ServiceState, "history" | "status" | "incident" | "maintenance">>;
   incidents: Incident[];
 }
 
@@ -83,9 +97,13 @@ export class Monitor extends EventEmitter {
     const results = await Promise.all(
       this.cfg.services.map(async (svc) => {
         const st = this.must(svc.id);
-        const r =
-          svc.check.type === "grafana-webhook" && st.pushed ? st.pushed : await runCheck(svc.check, this.cfg.sources);
-        return [svc, r] as const;
+        const [r, probed] = await Promise.all([
+          svc.check.type === "grafana-webhook" && st.pushed
+            ? st.pushed
+            : runCheck(svc.check, this.cfg.sources, this.cfg.maintenanceHeaders),
+          this.probeFor(svc),
+        ]);
+        return [svc, this.withMaintenance(svc, r, probed)] as const;
       }),
     );
     for (const [svc, r] of results) this.apply(svc, r);
@@ -93,6 +111,39 @@ export class Monitor extends EventEmitter {
     this.expireResolved(this.lastTickAt);
     this.save();
     this.emit("update");
+  }
+
+  /** The root-of-host probe for services whose own check does not see the maintenance page. */
+  private probeFor(svc: Service): Promise<Maintenance | undefined> {
+    const p = svc.maintenanceProbe;
+    if (!p) return Promise.resolve(undefined);
+    const url = p === true && svc.check.type === "http" ? new URL("/", svc.check.url).href : String(p);
+    return probeMaintenance(url, this.cfg.maintenanceHeaders);
+  }
+
+  /** Scheduled window covering this service right now, if any. */
+  scheduledFor(serviceId: string, now = Date.now()) {
+    return this.cfg.maintenances.find((m) => m.services.includes(serviceId) && m.start <= now && now < m.end);
+  }
+
+  /**
+   * A maintenance announced by the root probe, or a scheduled window, turns a failure into a
+   * maintenance. A healthy result inside a window stays healthy.
+   */
+  private withMaintenance(svc: Service, r: CheckResult, probed?: Maintenance): CheckResult {
+    if (r.status === "maintenance") return r;
+    if (probed) return { ...r, status: "maintenance", message: maintenanceMessage(probed), maintenance: probed };
+    // Only failures: no data inside a window is still no data.
+    const window = r.status === "down" || r.status === "degraded" ? this.scheduledFor(svc.id) : undefined;
+    if (!window) return r;
+    const maintenance: Maintenance = {
+      source: "schedule",
+      start: window.start,
+      end: window.end,
+      title: window.title,
+      url: window.url,
+    };
+    return { ...r, status: "maintenance", message: `${maintenanceMessage(maintenance)} · ${r.message}`, maintenance };
   }
 
   /** Called by POST /hooks/grafana. Returns the service ids it touched. */
@@ -113,7 +164,9 @@ export class Monitor extends EventEmitter {
         : { status: "up", message: "alertas resueltas" };
       // Webhooks are already debounced by Grafana's `for:`; apply them right away.
       st.fails = st.oks = Math.max(this.cfg.failThreshold, this.cfg.recoverThreshold) - 1;
-      this.apply(svc, st.pushed);
+      // Until the next poll says otherwise, the last probe's maintenance still holds.
+      const probed = st.maintenance?.source === "header" ? st.maintenance : undefined;
+      this.apply(svc, this.withMaintenance(svc, st.pushed, probed));
       touched.push(svc.id);
     }
     if (touched.length) {
@@ -131,6 +184,17 @@ export class Monitor extends EventEmitter {
     st.last = { ...r, at: now };
     st.history.push({ t: now, s: r.status, ms: r.latencyMs });
     if (st.history.length > this.cfg.historySize) st.history.splice(0, st.history.length - this.cfg.historySize);
+
+    if (r.status === "maintenance") {
+      // Announced: not a failure and not a recovery. An open incident waits for the real
+      // checks to resume; a closed one is not opened.
+      st.maintenance = r.maintenance;
+      st.fails = st.oks = 0;
+      st.status = "maintenance";
+      return;
+    }
+    st.maintenance = undefined;
+    if (st.status === "maintenance") st.status = st.incident?.status ?? "unknown";
 
     if (r.status === "unknown") {
       // No signal: neither confirms nor clears anything.
@@ -171,7 +235,17 @@ export class Monitor extends EventEmitter {
       (i) => i.serviceId === svc.id && i.issue && now - (i.resolvedAt ?? 0) < this.cfg.gitlab.reopenMinutes * 60_000,
     );
     if (recent) {
-      // Flapping: keep following the same issue.
+      // Flapping: keep following the same issue. The time it was fine in between is not
+      // part of the outage.
+      // The first failing sample of this run (not `fails` back: a webhook seeds that counter).
+      // No data in between does not end the run, as it does not reset `fails`.
+      let failedAt = now;
+      for (let i = st.history.length - 1; i >= 0; i--) {
+        const h = st.history[i];
+        if (!h || h.s === "up" || h.s === "maintenance") break;
+        if (h.s !== "unknown") failedAt = h.t;
+      }
+      recent.pausedMs = (recent.pausedMs ?? 0) + Math.max(0, failedAt - (recent.resolvedAt ?? failedAt));
       this.resolved = this.resolved.filter((i) => i !== recent);
       recent.resolvedAt = undefined;
       recent.status = r.status;
@@ -217,12 +291,12 @@ export class Monitor extends EventEmitter {
     const inc = st.incident as Incident;
     const now = Date.now();
     inc.resolvedAt = now;
-    inc.timeline.push({ t: now, status: "resolved", text: `Recuperado tras ${duration(now - inc.startedAt)}` });
+    inc.timeline.push({ t: now, status: "resolved", text: `Recuperado tras ${duration(downtime(inc, now))}` });
     st.incident = undefined;
     st.status = "up";
     this.resolved.unshift(inc);
     this.resolved = this.resolved.slice(0, 20);
-    console.log(`[incident] ${svc.id} resolved after ${duration(now - inc.startedAt)}`);
+    console.log(`[incident] ${svc.id} resolved after ${duration(downtime(inc, now))}`);
     this.enqueue(svc.id, () => this.syncResolve(svc, inc));
   }
 
@@ -259,8 +333,8 @@ export class Monitor extends EventEmitter {
     const src = describeCheck(svc.check);
     const now = Date.now();
     const state = inc.resolvedAt
-      ? `✅ **Resuelto** · duró ${duration(inc.resolvedAt - inc.startedAt)}`
-      : `${EMOJI[inc.status]} **${LABEL[inc.status]}** · hace ${duration(now - inc.startedAt)}`;
+      ? `✅ **Resuelto** · duró ${duration(downtime(inc))}`
+      : `${EMOJI[inc.status]} **${LABEL[inc.status]}** · ${duration(downtime(inc, now))}`;
     const rows = [
       ["Estado", state],
       ["Servicio", `${svc.name} (\`${svc.id}\`)${svc.group ? ` · ${svc.group}` : ""}`],
@@ -339,7 +413,7 @@ export class Monitor extends EventEmitter {
 
   private async syncResolve(svc: Service, inc: Incident) {
     if (!inc.issue) return;
-    const took = duration((inc.resolvedAt ?? Date.now()) - inc.startedAt);
+    const took = duration(downtime(inc));
     await this.gitlab.addNote(
       inc.issue.iid,
       `✅ **Recuperado** tras ${took}. ${this.cfg.recoverThreshold} comprobaciones seguidas correctas.${
@@ -417,6 +491,7 @@ export class Monitor extends EventEmitter {
         st.history = (saved.history ?? []).slice(-this.cfg.historySize);
         st.status = saved.status ?? "unknown";
         st.incident = saved.incident;
+        st.maintenance = saved.maintenance;
       }
       this.resolved = data.incidents ?? [];
       this.expireResolved();
@@ -436,7 +511,10 @@ export class Monitor extends EventEmitter {
   private save() {
     const data: Persisted = {
       services: Object.fromEntries(
-        [...this.state].map(([id, s]) => [id, { history: s.history, status: s.status, incident: s.incident }]),
+        [...this.state].map(([id, s]) => [
+          id,
+          { history: s.history, status: s.status, incident: s.incident, maintenance: s.maintenance },
+        ]),
       ),
       incidents: this.resolved,
     };
@@ -448,13 +526,15 @@ export class Monitor extends EventEmitter {
   snapshot() {
     const services = this.cfg.services.map((svc) => {
       const st = this.must(svc.id);
-      const counted = st.history.filter((h) => h.s !== "unknown");
+      // Maintenance, like no data, is left out of the uptime.
+      const counted = st.history.filter((h) => h.s !== "unknown" && h.s !== "maintenance");
       const available = counted.filter((h) => h.s !== "down").length;
       return {
         id: svc.id,
         name: svc.name,
         group: svc.group ?? "Servicios",
         description: svc.description,
+        component: svc.component ?? null,
         source: describeCheck(svc.check),
         status: st.status,
         message: st.last?.message ?? "pendiente",
@@ -462,11 +542,44 @@ export class Monitor extends EventEmitter {
         value: st.last?.value,
         checkedAt: st.last?.at,
         uptime: counted.length ? available / counted.length : null,
-        // Compact: one char per sample (u=up, d=degraded, x=down, -=unknown).
-        history: st.history.map((h) => ({ up: "u", degraded: "d", down: "x", unknown: "-" })[h.s]).join(""),
+        // Compact: one char per sample (u=up, d=degraded, x=down, -=unknown, m=maintenance).
+        history: st.history.map((h) => SAMPLE[h.s]).join(""),
         incident: st.incident ?? null,
+        maintenance: st.maintenance ?? null,
       };
     });
+    const now = Date.now();
+    const name = (id: string) => this.cfg.services.find((s) => s.id === id)?.name ?? id;
+    // Scheduled windows until they end (so they show before they start), plus what the
+    // maintenance pages say right now.
+    const maintenances = [
+      ...this.cfg.maintenances
+        .filter((m) => m.end > now)
+        .map((m) => ({
+          id: m.id,
+          source: "schedule" as const,
+          title: m.title,
+          description: m.description ?? null,
+          url: m.url ?? null,
+          start: m.start,
+          end: m.end,
+          active: m.start <= now,
+          services: m.services.map((id) => ({ id, name: name(id) })),
+        })),
+      ...services
+        .filter((s) => s.maintenance?.source === "header")
+        .map((s) => ({
+          id: `header-${s.id}`,
+          source: "header" as const,
+          title: s.maintenance?.service ?? "Mantenimiento",
+          description: null,
+          url: null,
+          start: s.maintenance?.start ?? null,
+          end: s.maintenance?.end ?? null,
+          active: true,
+          services: [{ id: s.id, name: s.name }],
+        })),
+    ].sort((a, b) => Number(b.active) - Number(a.active) || (a.start ?? 0) - (b.start ?? 0));
     const overall = services.reduce<Status>((acc, s) => worst(acc, s.status === "unknown" ? "up" : s.status), "up");
     return {
       title: this.cfg.title,
@@ -478,7 +591,9 @@ export class Monitor extends EventEmitter {
       overall,
       services,
       active: services.flatMap((s) => (s.incident ? [s.incident] : [])),
-      resolved: this.resolved.slice(0, 8),
+      resolved: this.resolved,
+      maintenances,
+      components: this.cfg.components,
       gitlab: {
         mode: this.gitlab.live ? "live" : "dry-run",
         project: this.cfg.gitlab.project ?? null,

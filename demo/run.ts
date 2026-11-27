@@ -19,6 +19,9 @@ process.env.GITLAB_URL ??= `http://localhost:${MOCK}/gitlab`;
 process.env.GITLAB_TOKEN ??= "demo-token";
 process.env.GITLAB_PROJECT ??= "devops/incidents";
 process.env.HOOK_TOKEN ??= "demo-hook";
+// A maintenance window announced for an hour from now, to see it before it starts.
+process.env.DEMO_WINDOW_START ??= new Date(Date.now() + 3_600_000).toISOString();
+process.env.DEMO_WINDOW_END ??= new Date(Date.now() + 3 * 3_600_000).toISOString();
 
 await import("../src/server.ts");
 
