@@ -43,6 +43,11 @@ Un único proceso de Node sin dependencias. Comprueba, decide, escribe en GitLab
 - **Debounce**: un fallo suelto no abre nada. Hacen falta `failThreshold` seguidos; el inicio se
   fecha en el primero de ellos.
 - **«Sin datos»** no cuenta ni como fallo ni como acierto.
+- **«En mantenimiento»** tampoco, y además pone a cero los contadores: un fallo justo antes y otro
+  justo después no suman `failThreshold`. Una incidencia abierta sigue abierta hasta que las
+  comprobaciones reales vuelvan. No cuenta para el uptime.
+- **Reapertura**: el tiempo que el servicio estuvo bien entre el cierre y el nuevo fallo se guarda
+  en `pausedMs` y no cuenta en la duración de la incidencia.
 - **Push** (`grafana-webhook`): se aplica al instante, porque Grafana ya ha esperado su `for:`.
 
 ## Sincronización con GitLab

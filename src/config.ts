@@ -2,6 +2,43 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Service, Source } from "./types.ts";
 
+/** Response headers a maintenance page sends. Names are case-insensitive. */
+export interface MaintenanceHeaders {
+  /** Present (and not `0`/`false`/`off`/`no`) = the host is in maintenance. */
+  flag: string;
+  /** ISO 8601 or epoch seconds. */
+  start: string;
+  /** ISO 8601 or epoch seconds. Without it, `Retry-After` is used. */
+  end: string;
+  /** What is being maintained. */
+  service: string;
+}
+
+/** A maintenance window announced ahead of time (`maintenances[]` in services.json). */
+export interface ScheduledMaintenance {
+  id: string;
+  title: string;
+  /** Service ids it covers. */
+  services: string[];
+  start: number;
+  end: number;
+  description?: string;
+  /** Where it was announced (an issue, a mail…). */
+  url?: string;
+}
+
+export interface Component {
+  name: string;
+  description?: string;
+  /** Brand colour, any CSS colour. */
+  color?: string;
+  /** Logo URL (absolute, or a path under public/). Without it, a monogram in `color`. */
+  logo?: string;
+}
+
+/** Paths the server already answers: a component cannot take them. */
+const RESERVED = new Set(["api", "healthz", "hooks", "index.html", "app.js", "app.css", "punto.css"]);
+
 export interface Config {
   title: string;
   /**
@@ -33,8 +70,18 @@ export interface Config {
     reopenMinutes: number;
     closeOnRecover: boolean;
   };
+  maintenanceHeaders: MaintenanceHeaders;
+  maintenances: ScheduledMaintenance[];
+  components: Record<string, Component>;
   services: Service[];
 }
+
+const time = (v: unknown, what: string): number => {
+  const t = typeof v === "number" ? v : Date.parse(String(v));
+  if (!Number.isFinite(t))
+    throw new Error(`${what}: "${v}" is not a date (use ISO 8601, e.g. 2026-12-01T20:00:00+01:00)`);
+  return t;
+};
 
 /** Replaces `${VAR}` / `${VAR:-default}` in every string of the JSON with env values. */
 function interpolate(value: unknown): unknown {
@@ -75,8 +122,20 @@ export function loadConfig(path = process.env.CONFIG ?? "config/services.json"):
       reopenMinutes: Number(gl.reopenMinutes ?? 30),
       closeOnRecover: gl.closeOnRecover ?? true,
     },
+    maintenanceHeaders: {
+      flag: "x-maintenance",
+      start: "x-maintenance-start",
+      end: "x-maintenance-end",
+      service: "x-maintenance-service",
+      ...raw.maintenanceHeaders,
+    },
+    maintenances: [],
+    components: raw.components ?? {},
     services: raw.services ?? [],
   };
+  for (const k of Object.keys(cfg.maintenanceHeaders) as (keyof MaintenanceHeaders)[]) {
+    cfg.maintenanceHeaders[k] = cfg.maintenanceHeaders[k].toLowerCase();
+  }
 
   const ids = new Set<string>();
   for (const s of cfg.services) {
@@ -87,6 +146,35 @@ export function loadConfig(path = process.env.CONFIG ?? "config/services.json"):
     if (src && !cfg.sources[src]?.url) {
       throw new Error(`service "${s.id}" uses source "${src}", which has no url`);
     }
+    if (s.maintenanceProbe === true && s.check.type !== "http") {
+      throw new Error(`service "${s.id}": maintenanceProbe: true needs an http check; give it a URL instead`);
+    }
+    if (s.component && !cfg.components[s.component]) {
+      throw new Error(`service "${s.id}" uses component "${s.component}", which is not in components`);
+    }
   }
+  for (const id of Object.keys(cfg.components)) {
+    if (!/^[a-z0-9][a-z0-9-_]*$/.test(id) || RESERVED.has(id)) throw new Error(`invalid component id "${id}"`);
+  }
+
+  const raws = (raw as { maintenances?: Record<string, unknown>[] }).maintenances ?? [];
+  cfg.maintenances = raws.map((m, i) => {
+    const what = `maintenances[${i}]`;
+    const services = [m.services ?? []].flat().map(String);
+    for (const id of services) if (!ids.has(id)) throw new Error(`${what}: unknown service "${id}"`);
+    if (!services.length) throw new Error(`${what}: needs at least one service`);
+    const start = time(m.start, `${what}.start`);
+    const end = time(m.end, `${what}.end`);
+    if (end <= start) throw new Error(`${what}: end must be after start`);
+    return {
+      id: String(m.id ?? `${services.join("+")}-${start}`),
+      title: String(m.title ?? "Mantenimiento programado"),
+      services,
+      start,
+      end,
+      description: m.description ? String(m.description) : undefined,
+      url: m.url ? String(m.url) : undefined,
+    };
+  });
   return cfg;
 }

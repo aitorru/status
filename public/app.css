@@ -226,3 +226,65 @@ a {
   margin-right: 0.35em;
   font-variant-numeric: tabular-nums;
 }
+
+/* ── Maintenance ───────────────────────────────────────────── */
+/* Announced work is neither healthy nor broken: indigo, the cool end of the spectrum, and a
+   dot split down the middle so it reads without colour too. */
+.pt-status--maint {
+  --c: var(--pt-indigo);
+}
+.pt-status--maint .pt-status__dot {
+  background: linear-gradient(90deg, var(--c) 50%, transparent 50%);
+  box-shadow: inset 0 0 0 1.5px var(--c);
+}
+.pt-uptime__dot--maint {
+  background: var(--pt-indigo);
+  opacity: 0.7;
+}
+.hp-maint__desc {
+  margin: 0;
+  color: var(--pt-fg-muted);
+}
+/* An empty section (no maintenance announced) takes no gap in the grid. */
+#maintenances:empty {
+  display: none;
+}
+
+/* ── Component pages (/gitlab, /k3s…) ──────────────────────── */
+.hp-home {
+  text-decoration: none;
+}
+.hp-back {
+  display: inline-block;
+  margin-bottom: var(--pt-space-5);
+  font-size: var(--pt-text-sm);
+  color: var(--pt-fg-muted);
+  text-decoration: none;
+}
+.hp-back:hover {
+  color: var(--pt-fg);
+}
+.hp-brand {
+  --brand: var(--pt-accent);
+  display: grid;
+  place-items: center;
+  width: 56px;
+  height: 56px;
+  margin-bottom: var(--pt-space-5);
+  border-radius: var(--pt-radius-md);
+  background: var(--brand);
+  color: #fff;
+  font: 400 32px / 1 var(--pt-font-display);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--brand) 35%, transparent);
+}
+.hp-brand img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+.hp-svc a {
+  text-decoration: none;
+}
+.hp-svc a:hover {
+  text-decoration: underline;
+}

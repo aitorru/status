@@ -9,13 +9,58 @@ const esc = (s) =>
     (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c],
   );
 
-const TONE = { up: "ok", degraded: "warn", down: "error", unknown: "idle" };
-const WORD = { up: "Operativo", degraded: "Degradado", down: "Caído", unknown: "Sin datos" };
-const LOG_LEVEL = { up: "ok", degraded: "warn", down: "error", unknown: "info", resolved: "ok", reopened: "error" };
-const SAMPLE_TONE = { u: "ok", d: "warn", x: "error", "-": "idle" };
+const TONE = { up: "ok", degraded: "warn", down: "error", unknown: "idle", maintenance: "maint" };
+const WORD = {
+  up: "Operativo",
+  degraded: "Degradado",
+  down: "Caído",
+  unknown: "Sin datos",
+  maintenance: "En mantenimiento",
+};
+const LOG_LEVEL = {
+  up: "ok",
+  degraded: "warn",
+  down: "error",
+  unknown: "info",
+  maintenance: "info",
+  resolved: "ok",
+  reopened: "error",
+};
+const SAMPLE_TONE = { u: "ok", d: "warn", x: "error", "-": "idle", m: "maint" };
+const RANK = { up: 0, unknown: 1, maintenance: 2, degraded: 3, down: 4 };
+
+// /gitlab, /k3s…: the same page scoped to one component (its services, incidents and windows).
+const SCOPE = decodeURIComponent(location.pathname.replace(/^\/+|\/+$/g, "")) || null;
 
 let snap = null;
 let connected = false;
+
+/** The snapshot as this page sees it: everything, or one component's share of it. */
+function scoped(raw) {
+  const component = SCOPE ? raw.components?.[SCOPE] : null;
+  if (!component) return { ...raw, component: null, resolved: raw.resolved.slice(0, 8) };
+  const services = raw.services.filter((s) => s.component === SCOPE);
+  const ids = new Set(services.map((s) => s.id));
+  const overall = services.reduce(
+    (acc, s) => (RANK[s.status] > RANK[acc] && s.status !== "unknown" ? s.status : acc),
+    "up",
+  );
+  return {
+    ...raw,
+    component: { id: SCOPE, ...component },
+    services,
+    overall,
+    active: raw.active.filter((i) => ids.has(i.serviceId)),
+    resolved: raw.resolved.filter((i) => ids.has(i.serviceId)),
+    // Only this component's share of a shared window.
+    maintenances: raw.maintenances
+      .map((m) => ({ ...m, services: m.services.filter((s) => ids.has(s.id)) }))
+      .filter((m) => m.services.length),
+  };
+}
+
+/** Outage time of an incident: a reopen does not count the time it was fine in between. */
+const downFrom = (i) => i.startedAt + (i.pausedMs ?? 0);
 
 // ── Formatting ──────────────────────────────────────────────────
 const dur = (ms) => {
@@ -29,6 +74,14 @@ const clock = (t) => new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", 
 const hm = (t) => new Date(t).toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" });
 const pct = (u) => (u == null ? "—" : `${(u * 100).toFixed(u === 1 ? 0 : 1).replace(".", ",")} %`);
 const n = (k, one, many) => `${k} ${k === 1 ? one : many}`;
+const day = (t) =>
+  new Date(t).toLocaleString("es-ES", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 
 // ── Punto components, as HTML ───────────────────────────────────
 const Status = (tone, label, pulse = tone === "running") =>
@@ -117,6 +170,12 @@ const DataTable = ({
   </table>
 </div>`;
 
+/** A component's mark: its logo, or its initial on its brand colour. */
+const Brand = (c) =>
+  `<span class="hp-brand" style="--brand: ${esc(c.color ?? "var(--pt-accent)")}">${
+    c.logo ? `<img src="${esc(c.logo)}" alt="" />` : esc(c.name.slice(0, 1).toUpperCase())
+  }</span>`;
+
 const issueLink = (inc) => {
   if (!inc?.issue) return snap.gitlab.mode === "live" ? Status("running", "abriendo issue") : "—";
   const label = `#${inc.issue.iid}`;
@@ -127,7 +186,8 @@ const issueLink = (inc) => {
 
 // ── Sections ────────────────────────────────────────────────────
 function renderMast() {
-  $("brand-title").textContent = snap?.title ?? "Estado de servicios";
+  const title = snap?.title ?? "Estado de servicios";
+  $("brand-title").innerHTML = SCOPE ? `<a href="/" class="hp-home">${esc(title)}</a>` : esc(title);
   $("issue").textContent = snap
     ? snap.gitlab.mode === "live"
       ? `GitLab · ${snap.gitlab.project}`
@@ -148,7 +208,7 @@ function renderLive() {
 function renderHead() {
   const { services, active, overall } = snap;
   const count = (s) => services.filter((x) => x.status === s).length;
-  const [up, degraded, down, unknown] = ["up", "degraded", "down", "unknown"].map(count);
+  const [up, degraded, down, unknown, maint] = ["up", "degraded", "down", "unknown", "maintenance"].map(count);
   // `*…*` in the configured headline is the italic half, as in "Todo *funciona*".
   const headline = snap.headline ? esc(snap.headline).replace(/\*([^*]+)\*/g, "<em>$1</em>") : "Todo <em>funciona</em>";
   const title =
@@ -158,14 +218,18 @@ function renderHead() {
         ? down === 1
           ? "Un servicio <em>caído</em>"
           : `${down} servicios <em>caídos</em>`
-        : degraded === 1
-          ? "Un servicio <em>degradado</em>"
-          : `${degraded} servicios <em>degradados</em>`;
+        : degraded
+          ? degraded === 1
+            ? "Un servicio <em>degradado</em>"
+            : `${degraded} servicios <em>degradados</em>`
+          : maint === 1
+            ? "Un servicio <em>en mantenimiento</em>"
+            : `${maint} servicios <em>en mantenimiento</em>`;
   const description = active.length
     ? `${active
         .map(
           (i) =>
-            `${esc(i.serviceName)} ${WORD[i.status].toLowerCase()} desde hace ${ago(i.startedAt)}${i.issue ? ` (issue #${i.issue.iid})` : ""}`,
+            `${esc(i.serviceName)} ${WORD[i.status].toLowerCase()} desde hace ${ago(downFrom(i))}${i.issue ? ` (issue #${i.issue.iid})` : ""}`,
         )
         .join("; ")}.`
     : "";
@@ -173,27 +237,30 @@ function renderHead() {
     up && Status("ok", n(up, "operativo", "operativos")),
     degraded && Status("warn", n(degraded, "degradado", "degradados")),
     down && Status("error", n(down, "caído", "caídos")),
+    maint && Status("maint", `${maint} en mantenimiento`),
     unknown && Status("idle", "sin datos"),
   ].filter(Boolean);
   // The wave keeps drifting on its own (headWave); on a bad day it also breathes. The svg is
   // only rebuilt when that changes, so the breath is never cut short.
-  const motion = overall === "up" ? "still" : "breathe";
+  const motion = overall === "up" || overall === "maintenance" ? "still" : "breathe";
   const head = $("head");
   if (head.dataset.motion !== motion) {
     head.dataset.motion = motion;
     head.innerHTML = `<div id="head-wave"></div><div id="head-body" class="hp-head-body"></div>`;
     drawWave();
   }
-  $("head-body").innerHTML = `  ${SectionHeader({
-    size: "lg",
-    level: 1,
-    index: "Producción",
-    eyebrow: `${n(services.length, "servicio", "servicios")} · comprobación cada ${snap.intervalSeconds} s`,
-    title,
-    description,
-  })}
+  const c = snap.component;
+  $("head-body").innerHTML =
+    `  ${c ? `<a class="hp-back" href="/">← Todos los servicios</a>${Brand(c)}` : ""}${SectionHeader({
+      size: "lg",
+      level: 1,
+      index: c ? esc(c.name) : "Producción",
+      eyebrow: `${c?.description ? `${esc(c.description)} · ` : ""}${n(services.length, "servicio", "servicios")} · comprobación cada ${snap.intervalSeconds} s`,
+      title,
+      description,
+    })}
   <div class="pt-stack pt-stack--row pt-stack--wrap fm-head__actions" style="--gap: var(--pt-space-5)">${statuses.join("")}</div>`;
-  document.title = `${overall === "up" ? "●" : "▲"} ${snap.title}`;
+  document.title = `${overall === "up" ? "●" : overall === "maintenance" ? "◐" : "▲"} ${c ? `${c.name} · ` : ""}${snap.title}`;
 }
 
 // ── Header pattern ──────────────────────────────────────────────
@@ -232,7 +299,7 @@ function waveFrame(t) {
 
 /** One sample per tick for the whole platform: the worst service at that moment. */
 function platformHistory() {
-  const rank = { "-": 0, u: 1, d: 2, x: 3 };
+  const rank = { "-": 0, u: 1, m: 2, d: 3, x: 4 };
   const out = Array(snap.historySize).fill("-");
   for (const s of snap.services) {
     const h = s.history.padStart(snap.historySize, "-");
@@ -245,7 +312,9 @@ function renderStats() {
   const { services, active, resolved } = snap;
   const counted = services.filter((s) => s.uptime != null);
   const uptime = counted.length ? counted.reduce((a, s) => a + s.uptime, 0) / counted.length : null;
-  const http = services.filter((s) => s.source.kind === "http" && s.latencyMs != null && s.status !== "down");
+  const http = services.filter(
+    (s) => s.source.kind === "http" && s.latencyMs != null && s.status !== "down" && s.status !== "maintenance",
+  );
   const latency = http.length ? Math.round(http.reduce((a, s) => a + s.latencyMs, 0) / http.length) : null;
   const slowest = http.toSorted((a, b) => b.latencyMs - a.latencyMs)[0];
   const span = dur(snap.historySize * snap.intervalSeconds * 1000);
@@ -303,7 +372,9 @@ function renderServices() {
       mono: true,
       cls: "hp-col-svc",
       cell: (s) =>
-        `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${esc(s.name)}<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
+        `<span class="hp-svc" style="--svc: var(--pt-spectrum-${(snap.services.indexOf(s) % 6) + 1})">${
+          s.component && !SCOPE ? `<a href="/${esc(s.component)}">${esc(s.name)}</a>` : esc(s.name)
+        }<small>${esc(s.group)}${s.description ? ` · ${esc(s.description)}` : ""}</small></span>`,
     },
     { header: "Estado", cell: (s) => Status(TONE[s.status], WORD[s.status]) },
     {
@@ -315,13 +386,21 @@ function renderServices() {
     {
       header: "Historial",
       cls: "hp-col-hist",
+      // A component page has room for the whole history, in rows.
       cell: (s) =>
-        DotUptime(
-          [...s.history.slice(-30).padStart(30, "-")].map((c) => SAMPLE_TONE[c]),
-          `Últimas comprobaciones de ${s.name}`,
-          1,
-          6,
-        ),
+        SCOPE
+          ? DotUptime(
+              [...s.history.padStart(snap.historySize, "-")].map((c) => SAMPLE_TONE[c]),
+              `Comprobaciones de ${s.name}`,
+              Math.ceil(snap.historySize / 30),
+              6,
+            )
+          : DotUptime(
+              [...s.history.slice(-30).padStart(30, "-")].map((c) => SAMPLE_TONE[c]),
+              `Últimas comprobaciones de ${s.name}`,
+              1,
+              6,
+            ),
     },
     {
       header: "Uptime",
@@ -342,8 +421,47 @@ function renderServices() {
       cell: (s) => `<div class="hp-msg" title="${esc(s.message)}">${esc(s.message)}</div>`,
     },
   ];
-  $("services").innerHTML = `${SectionTitle("01", "Servicios")}
+  $("services").innerHTML = `${SectionTitle(sec("services"), "Servicios")}
     <div class="hp-table-wrap">${DataTable({ caption: "Servicios vigilados", columns, rows: snap.services, selected: (s) => Boolean(s.incident) })}</div>`;
+}
+
+/** Section numbers follow the sections on screen: the maintenance one only shows when there is one. */
+function sec(id) {
+  const order = ["services", ...(snap.maintenances.length ? ["maintenances"] : []), "incidents", "log"];
+  return String(order.indexOf(id) + 1).padStart(2, "0");
+}
+
+function renderMaintenances() {
+  const el = $("maintenances");
+  if (!snap.maintenances.length) {
+    el.innerHTML = "";
+    return;
+  }
+  const cards = snap.maintenances.map((m) => {
+    const when = m.active
+      ? m.end
+        ? `termina en <span data-until="${m.end}">${dur(m.end - Date.now())}</span>`
+        : "sin fin anunciado"
+      : `empieza en <span data-until="${m.start}">${dur(m.start - Date.now())}</span>`;
+    return Glass(`<div class="hp-inc">
+      <div class="hp-inc__head"><h3 class="pt-display hp-inc__title">${esc(m.title)}</h3>${Status("maint", m.active ? "En curso" : "Programado", m.active)}</div>
+      ${m.description ? `<p class="pt-body hp-maint__desc">${esc(m.description)}</p>` : ""}
+      ${KeyValue([
+        { label: "Servicios", value: m.services.map((s) => esc(s.name)).join(" · ") },
+        { label: "Inicio", value: m.start ? day(m.start) : "—", mono: true },
+        { label: "Fin previsto", value: m.end ? day(m.end) : "—", mono: true },
+        { label: "Cuándo", value: when },
+        {
+          label: "Origen",
+          value: m.source === "header" ? "cabecera de la página de mantenimiento" : "ventana programada",
+        },
+        ...(m.url
+          ? [{ label: "Aviso", value: `<a href="${esc(m.url)}" target="_blank" rel="noopener">abrir ↗</a>` }]
+          : []),
+      ])}
+    </div>`);
+  });
+  el.innerHTML = `${SectionTitle(sec("maintenances"), "Mantenimientos")}${cards.join("")}`;
 }
 
 function renderIncidents() {
@@ -361,7 +479,7 @@ function renderIncidents() {
         ${KeyValue([
           { label: "Issue", value: issueLink(i), mono: true },
           { label: "Inicio", value: hm(i.startedAt), mono: true },
-          { label: "Duración", value: ago(i.startedAt) },
+          { label: "Duración", value: ago(downFrom(i)) },
           { label: "Peor estado", value: WORD[i.worst] },
           { label: "Comprobaciones fallidas", value: String(i.failedChecks), mono: true },
           { label: "Fuente", value: esc(svc?.source.kind ?? "—"), mono: true },
@@ -377,14 +495,14 @@ function renderIncidents() {
         columns: [
           { header: "Servicio", mono: true, cell: (i) => esc(i.serviceName) },
           { header: "Peor estado", cell: (i) => Status(TONE[i.worst], WORD[i.worst]) },
-          { header: "Duración", end: true, mono: true, cell: (i) => dur(i.resolvedAt - i.startedAt) },
+          { header: "Duración", end: true, mono: true, cell: (i) => dur(i.resolvedAt - downFrom(i)) },
           { header: "Resuelta", end: true, cls: "hp-col-msg", cell: (i) => `hace ${ago(i.resolvedAt)}` },
           { header: "Issue", end: true, mono: true, cell: issueLink },
         ],
         rows: resolved,
       })
     : "";
-  $("incidents").innerHTML = `${SectionTitle("02", "Incidencias", `<span class="pt-folio">${where}</span>`)}
+  $("incidents").innerHTML = `${SectionTitle(sec("incidents"), "Incidencias", `<span class="pt-folio">${where}</span>`)}
   ${cards.join("") || Glass(`<div class="hp-empty">${Status("ok", "Sin incidencias abiertas")}</div>`)}
   ${past ? `<span class="pt-eyebrow">Resueltas recientemente</span><div class="hp-table-wrap">${past}</div>` : ""}`;
 }
@@ -395,7 +513,7 @@ function renderLog() {
     .sort((a, b) => b.t - a.t)
     .slice(0, 14);
   const width = Math.max(...snap.services.map((s) => s.id.length));
-  $("log").innerHTML = `${SectionTitle("03", "Registro", Status("running", "En directo"))}
+  $("log").innerHTML = `${SectionTitle(sec("log"), "Registro", Status("running", "En directo"))}
     ${
       all.length
         ? LogView(
@@ -414,7 +532,7 @@ function renderLog() {
 // ── Favicon ─────────────────────────────────────────────────────
 // The brand's nine dots in the colour of the platform; when something is down they turn red
 // and only the diagonals stay, so the tab says it without colour too. Grey while reconnecting.
-const FAVICON = { up: "#2f9e6e", degraded: "#d08a1c", down: "#f23f6b", unknown: "#8a8a8a" };
+const FAVICON = { up: "#2f9e6e", degraded: "#d08a1c", down: "#f23f6b", unknown: "#8a8a8a", maintenance: "#4f5ff0" };
 function renderFavicon() {
   const state = connected && snap ? snap.overall : "unknown";
   const el = $("favicon");
@@ -516,6 +634,7 @@ function render() {
   renderHead();
   renderStats();
   renderServices();
+  renderMaintenances();
   renderIncidents();
   renderLog();
 }
@@ -532,7 +651,7 @@ fetch("/punto.version")
 const es = new EventSource("/api/events");
 es.onmessage = (ev) => {
   connected = true;
-  snap = JSON.parse(ev.data);
+  snap = scoped(JSON.parse(ev.data));
   render();
 };
 es.onerror = () => {
@@ -550,4 +669,6 @@ addEventListener("resize", renderFoot);
 setInterval(() => {
   renderLive();
   for (const el of document.querySelectorAll("[data-ago]")) el.textContent = dur(Date.now() - Number(el.dataset.ago));
+  for (const el of document.querySelectorAll("[data-until]"))
+    el.textContent = dur(Number(el.dataset.until) - Date.now());
 }, 1000);

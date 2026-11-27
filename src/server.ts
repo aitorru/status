@@ -81,7 +81,10 @@ const server = createServer(async (req, res) => {
 
     if (req.method !== "GET" && req.method !== "HEAD") return json(res, 405, { error: "read only" });
 
-    const path = normalize(url.pathname === "/" ? "/index.html" : url.pathname);
+    // /gitlab, /k3s…: the same page, scoped to that component by app.js.
+    const component = /^\/([a-z0-9][a-z0-9-_]*)\/?$/.exec(url.pathname)?.[1];
+    const isComponent = component !== undefined && Object.hasOwn(cfg.components, component);
+    const path = normalize(url.pathname === "/" || isComponent ? "/index.html" : url.pathname);
     const file = join(publicDir, path);
     if (!file.startsWith(publicDir)) return json(res, 404, { error: "not found" });
     const body = await readFile(file).catch(() => null);

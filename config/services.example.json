@@ -7,8 +7,13 @@
   "resolvedRetentionDays": 7,
   "publicUrl": "${PUBLIC_URL}",
   "sources": {
-    "prometheus": { "url": "${PROMETHEUS_URL:-http://prometheus:9090}" },
-    "grafana": { "url": "${GRAFANA_URL}", "token": "${GRAFANA_TOKEN}" }
+    "prometheus": {
+      "url": "${PROMETHEUS_URL:-http://prometheus:9090}"
+    },
+    "grafana": {
+      "url": "${GRAFANA_URL}",
+      "token": "${GRAFANA_TOKEN}"
+    }
   },
   "gitlab": {
     "labels": ["incident", "status-page"],
@@ -18,6 +23,14 @@
     "reopenMinutes": 30,
     "closeOnRecover": true
   },
+  "components": {
+    "sonarqube": {
+      "name": "SonarQube",
+      "description": "Calidad de código",
+      "color": "#126ed3"
+    }
+  },
+  "maintenances": [],
   "services": [
     {
       "id": "web",
@@ -60,13 +73,35 @@
       "id": "queue",
       "name": "Colas",
       "group": "Datos",
-      "check": { "type": "grafana-alert", "source": "grafana", "rule": "Queue backlog" }
+      "check": {
+        "type": "grafana-alert",
+        "source": "grafana",
+        "rule": "Queue backlog"
+      }
     },
     {
       "id": "auth",
       "name": "Auth / SSO",
       "group": "Core",
-      "check": { "type": "grafana-webhook", "match": { "service": "auth" } }
+      "check": {
+        "type": "grafana-webhook",
+        "match": {
+          "service": "auth"
+        }
+      }
+    },
+    {
+      "id": "sonarqube",
+      "name": "SonarQube",
+      "group": "Plataforma",
+      "component": "sonarqube",
+      "description": "Su ruta de salud va por debajo de la página de mantenimiento: la sonda mira la raíz",
+      "maintenanceProbe": true,
+      "check": {
+        "type": "http",
+        "url": "https://sonar.example.com/api/system/status",
+        "bodyContains": "\"UP\""
+      }
     }
   ]
 }

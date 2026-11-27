@@ -5,31 +5,55 @@
   "recoverThreshold": 2,
   "historySize": 60,
   "sources": {
-    "prometheus": { "url": "${MOCK_URL}/prom" },
-    "grafana": { "url": "${MOCK_URL}/grafana", "token": "demo" }
+    "prometheus": {
+      "url": "${MOCK_URL}/prom"
+    },
+    "grafana": {
+      "url": "${MOCK_URL}/grafana",
+      "token": "demo"
+    },
+    "k3s": {
+      "url": "${MOCK_URL}/k8s"
+    }
   },
-  "gitlab": { "labels": ["incident", "status-page"], "heartbeatMinutes": 1, "reopenMinutes": 3 },
+  "gitlab": {
+    "labels": ["incident", "status-page"],
+    "heartbeatMinutes": 1,
+    "reopenMinutes": 3
+  },
   "services": [
     {
       "id": "web",
       "name": "Web pública",
       "group": "Edge",
       "description": "Frontal y CDN",
-      "check": { "type": "http", "url": "${MOCK_URL}/svc/web", "degradedLatencyMs": 800 }
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/web",
+        "degradedLatencyMs": 800
+      }
     },
     {
       "id": "checkout",
       "name": "Checkout API",
       "group": "Edge",
       "description": "/api/checkout/health",
-      "check": { "type": "http", "url": "${MOCK_URL}/svc/checkout", "expectStatus": 200 }
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/checkout",
+        "expectStatus": 200
+      }
     },
     {
       "id": "search",
       "name": "Búsqueda",
       "group": "Edge",
       "description": "Latencia > 800 ms = degradado",
-      "check": { "type": "http", "url": "${MOCK_URL}/svc/search", "degradedLatencyMs": 800 }
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/search",
+        "degradedLatencyMs": 800
+      }
     },
     {
       "id": "payments",
@@ -76,14 +100,154 @@
       "name": "Colas",
       "group": "Datos",
       "description": "Regla de alerta «Queue backlog»",
-      "check": { "type": "grafana-alert", "source": "grafana", "rule": "Queue backlog" }
+      "check": {
+        "type": "grafana-alert",
+        "source": "grafana",
+        "rule": "Queue backlog"
+      }
     },
     {
       "id": "auth",
       "name": "Auth / SSO",
       "group": "Core",
       "description": "Webhook de alertas de Grafana",
-      "check": { "type": "grafana-webhook", "match": { "service": "auth" } }
+      "check": {
+        "type": "grafana-webhook",
+        "match": {
+          "service": "auth"
+        }
+      }
+    },
+    {
+      "id": "gitlab",
+      "name": "GitLab",
+      "group": "Plataforma",
+      "component": "gitlab",
+      "description": "Ruta tapada por la página de mantenimiento",
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/gitlab/users/sign_in",
+        "expectStatus": 200
+      }
+    },
+    {
+      "id": "sonarqube",
+      "name": "SonarQube",
+      "group": "Plataforma",
+      "component": "sonarqube",
+      "description": "/api/system/status + sonda a la raíz",
+      "maintenanceProbe": "${MOCK_URL}/svc/sonarqube/",
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/sonarqube/api/system/status",
+        "bodyContains": "\"UP\""
+      }
+    },
+    {
+      "id": "keycloak",
+      "name": "Keycloak",
+      "group": "Plataforma",
+      "component": "keycloak",
+      "description": ".well-known + sonda a la raíz",
+      "maintenanceProbe": "${MOCK_URL}/svc/keycloak/",
+      "check": {
+        "type": "http",
+        "url": "${MOCK_URL}/svc/keycloak/realms/platform/.well-known/openid-configuration"
+      }
+    },
+    {
+      "id": "k3s-api",
+      "name": "API de k3s",
+      "group": "k3s",
+      "component": "k3s",
+      "description": "/readyz",
+      "check": {
+        "type": "kubernetes",
+        "source": "k3s",
+        "probe": "readyz"
+      }
+    },
+    {
+      "id": "k3s-nodes",
+      "name": "Nodos",
+      "group": "k3s",
+      "component": "k3s",
+      "description": "Ready",
+      "check": {
+        "type": "kubernetes",
+        "source": "k3s",
+        "probe": "nodes"
+      }
+    },
+    {
+      "id": "traefik",
+      "name": "Traefik",
+      "group": "k3s",
+      "component": "k3s",
+      "description": "kube-system/traefik",
+      "check": {
+        "type": "kubernetes",
+        "source": "k3s",
+        "probe": "deployment",
+        "namespace": "kube-system",
+        "name": "traefik"
+      }
+    },
+    {
+      "id": "pg-primary",
+      "name": "Primarios PG",
+      "group": "k3s",
+      "component": "k3s",
+      "description": "KubeBlocks",
+      "check": {
+        "type": "kubernetes",
+        "source": "k3s",
+        "probe": "primary"
+      }
+    },
+    {
+      "id": "k3s-version",
+      "name": "Versión de k3s",
+      "group": "k3s",
+      "component": "k3s",
+      "check": {
+        "type": "kubernetes",
+        "source": "k3s",
+        "probe": "version"
+      }
+    }
+  ],
+  "components": {
+    "gitlab": {
+      "name": "GitLab",
+      "description": "Código, CI y registro",
+      "color": "#e24329"
+    },
+    "sonarqube": {
+      "name": "SonarQube",
+      "description": "Calidad de código",
+      "color": "#126ed3"
+    },
+    "keycloak": {
+      "name": "Keycloak",
+      "description": "SSO",
+      "color": "#008aaa"
+    },
+    "k3s": {
+      "name": "k3s",
+      "description": "Clúster de la plataforma",
+      "color": "#ffc61c"
+    }
+  },
+  "maintenances": [
+    {
+      "id": "ensayo",
+      "title": "Ensayo de migración",
+      "description": "Ventana del aviso: GitLab, SonarQube y Keycloak pasan a la página de mantenimiento.",
+      "services": ["gitlab", "sonarqube", "keycloak"],
+      "start": "${DEMO_WINDOW_START}",
+      "end": "${DEMO_WINDOW_END}",
+      "url": "${MOCK_URL}/gitlab/issues"
     }
   ]
 }
